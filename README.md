@@ -1,1 +1,1 @@
-# laserduck
+# Laser Duck Game
