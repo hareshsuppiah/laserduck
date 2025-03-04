@@ -547,7 +547,8 @@ class Boss {
     constructor() {
         this.radius = 45;
         this.speed = 1.5;
-        this.maxHp = 11000;  // Increased from 1000 to 11000
+        // Set HP based on level
+        this.maxHp = currentLevel <= 12 ? 5000 : 11000;
         this.hp = this.maxHp;
         this.x = canvas.width / 2;
         this.y = 0;
