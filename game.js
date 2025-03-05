@@ -1,6 +1,17 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Add a dedicated event listener for the Escape key
+window.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && gameStarted) {
+        console.log('Escape key pressed from dedicated handler!');
+        isPaused = !isPaused;
+        console.log('Game paused state:', isPaused);
+        event.preventDefault();
+        event.stopPropagation();
+    }
+}, true);  // Use capture phase
+
 // Game state variables
 let gameStarted = false;
 let allowMultiplePowerups = false;
@@ -27,6 +38,7 @@ let showVictoryScreen = false;
 let showUpgradeChoice = true;  // Track if player has made their choice
 let isEndlessMode = false;
 let totalKills = 0;  // Track total kills across all levels
+let isPaused = false; // Add pause state
 
 // Set canvas to fullscreen
 canvas.width = window.innerWidth;
@@ -787,11 +799,33 @@ class MultiShotPowerup {
     }
 }
 
-// Input handling
-window.addEventListener('keydown', e => {
-    e.preventDefault();  // Prevent default browser actions
-    keys[e.key.toLowerCase()] = true;  // Convert to lowercase for consistency
-});
+// Remove all existing keydown event listeners
+window.removeEventListener('keydown', window.keydownHandler);
+
+// Create a single keydown handler
+window.keydownHandler = function(e) {
+    keys[e.key.toLowerCase()] = true;
+    
+    // Handle ESC key for pause - only when game is started
+    if (e.key === 'Escape' && gameStarted) {
+        console.log('Escape key pressed!');
+        isPaused = !isPaused;
+        console.log('Game paused:', isPaused);
+    }
+};
+
+// Add the single keydown handler
+window.addEventListener('keydown', window.keydownHandler);
+
+// Remove the DOMContentLoaded event listener that adds another keydown handler
+// document.addEventListener('DOMContentLoaded', () => {
+//     window.addEventListener('keydown', e => {
+//         if (e.key === 'Escape' && gameStarted) {
+//             console.log('Escape pressed (from DOMContentLoaded), toggling pause');
+//             isPaused = !isPaused;
+//         }
+//     });
+// });
 
 window.addEventListener('keyup', e => {
     e.preventDefault();  // Prevent default browser actions
@@ -883,6 +917,10 @@ function gameLoop() {
         drawStartMenu();
     } else {
         runGame();
+        if (isPaused) {
+            console.log('Game is paused, drawing pause menu');
+            drawPauseMenu();
+        }
     }
 
     requestAnimationFrame(gameLoop);
@@ -988,6 +1026,16 @@ function runGame() {
     // Add kill counter
     ctx.textAlign = 'right';
     ctx.fillText(`Kills: ${totalKills}`, canvas.width - 20, 40);
+    
+    // Add test pause button
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(canvas.width - 120, 60, 100, 30);
+    ctx.fillStyle = 'white';
+    ctx.font = '16px Arial';
+    ctx.fillText('Pause', canvas.width - 70, 80);
+
+    // Don't update game state if paused
+    if (isPaused) return;
 
     debugLog(`Frame - Boss: ${bosses.length > 0 ? 'Present' : 'None'}, Enemies: ${enemies.length}, Kills: ${enemiesKilled}`);
     
@@ -1416,6 +1464,27 @@ canvas.addEventListener('click', e => {
             return;
             }
         }
+    } else if (isPaused) {
+        const menuWidth = 400;
+        const menuHeight = 300;
+        const menuX = canvas.width/2 - menuWidth/2;
+        const menuY = canvas.height/2 - menuHeight/2;
+        
+        // Resume button
+        if (e.clientX >= canvas.width/2 - 100 && e.clientX <= canvas.width/2 + 100 &&
+            e.clientY >= menuY + 120 && e.clientY <= menuY + 160) {
+            console.log('Resume button clicked');
+            isPaused = false;
+        }
+        
+        // Main Menu button
+        if (e.clientX >= canvas.width/2 - 100 && e.clientX <= canvas.width/2 + 100 &&
+            e.clientY >= menuY + 180 && e.clientY <= menuY + 220) {
+            console.log('Main Menu button clicked');
+            isPaused = false;
+            gameStarted = false;
+            resetGame();
+        }
     } else {
         if (!player.alive) {
             const buttonX = canvas.width/2 - 60;
@@ -1467,6 +1536,14 @@ canvas.addEventListener('click', e => {
                         resetGame();
                     }
                 }
+            }
+        } else {
+            // Check for test pause button click
+            if (e.clientX >= canvas.width - 120 && e.clientX <= canvas.width - 20 &&
+                e.clientY >= 60 && e.clientY <= 90) {
+                console.log('Pause button clicked');
+                isPaused = !isPaused;
+                console.log('Game paused state:', isPaused);
             }
         }
     }
@@ -1540,6 +1617,15 @@ const enemies = Array(7).fill().map(() => new Enemy());
 const keys = {};
 
 initGame(); 
+
+// Add a direct document-level event listener for the Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && gameStarted) {
+        console.log('Document-level Escape key pressed!');
+        isPaused = !isPaused;
+        console.log('Game paused state:', isPaused);
+    }
+});
 
 class GalacticBehemoth extends Boss {
     constructor() {
@@ -2369,3 +2455,41 @@ class CelestialLeviathan extends Boss {
         return 'Void Serpent Coil';
     }
 } 
+
+function drawPauseMenu() {
+    // Semi-transparent overlay (make it darker)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Add a border around the pause menu
+    const menuWidth = 400;
+    const menuHeight = 300;
+    const menuX = canvas.width/2 - menuWidth/2;
+    const menuY = canvas.height/2 - menuHeight/2;
+    
+    // Draw menu background
+    ctx.fillStyle = 'rgba(50, 50, 50, 0.9)';
+    ctx.fillRect(menuX, menuY, menuWidth, menuHeight);
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
+    
+    // Pause menu text
+    ctx.fillStyle = 'white';
+    ctx.font = '48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', canvas.width / 2, menuY + 80);
+    
+    // Resume button
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(canvas.width/2 - 100, menuY + 120, 200, 40);
+    ctx.fillStyle = 'white';
+    ctx.font = '20px Arial';
+    ctx.fillText('Resume (ESC)', canvas.width/2, menuY + 145);
+    
+    // Main Menu button
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(canvas.width/2 - 100, menuY + 180, 200, 40);
+    ctx.fillStyle = 'white';
+    ctx.fillText('Main Menu', canvas.width/2, menuY + 205);
+}
