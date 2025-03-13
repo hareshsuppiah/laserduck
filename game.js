@@ -39,6 +39,18 @@ let showUpgradeChoice = true;  // Track if player has made their choice
 let isEndlessMode = false;
 let totalKills = 0;  // Track total kills across all levels
 let isPaused = false; // Add pause state
+let unlockedLevels = [1]; // Start with only level 1 unlocked
+let activeCodes = []; // Track redeemed codes
+
+// Game codes and their effects
+const GAME_CODES = {
+    'ULTRADUCK': { effect: 'levelDamage', value: 5, description: '+5 damage per level' },
+    'QUACKMASTER': { effect: 'levelDamage', value: 3, description: '+3 damage per level' },
+    'DUCKPOWER': { effect: 'levelDamage', value: 2, description: '+2 damage per level' },
+    'WADDLE': { effect: 'levelDamage', value: 4, description: '+4 damage per level' },
+    'FEATHERS': { effect: 'levelDamage', value: 6, description: '+6 damage per level' },
+    'DUCK AND LASER': { effect: 'bulletMod', value: { multishot: 3, bounces: 2 }, description: '+3 multishot, bullets bounce 2 times' }
+};
 
 // Set canvas to fullscreen
 canvas.width = window.innerWidth;
@@ -69,6 +81,21 @@ class Player {
         this.voidCoilCooldown = 0;
         this.voidCoilMaxCooldown = 180; // 3 seconds
         this.afterimages = [];
+        this.extraMultishot = 0;  // Track additional multishot from codes
+        this.bulletBounces = 0;   // Track bullet bounces from codes
+        
+        // Calculate additional effects from active codes
+        let codeDamageBonus = 0;
+        activeCodes.forEach(code => {
+            if (GAME_CODES[code].effect === 'levelDamage') {
+                codeDamageBonus += GAME_CODES[code].value * currentLevel;
+            } else if (GAME_CODES[code].effect === 'bulletMod') {
+                const mods = GAME_CODES[code].value;
+                this.extraMultishot = Math.max(this.extraMultishot, mods.multishot || 0);
+                this.bulletBounces = Math.max(this.bulletBounces, mods.bounces || 0);
+            }
+        });
+        this.damage = this.baseDamage + codeDamageBonus;
     }
 
     draw() {
@@ -277,18 +304,22 @@ class Player {
     shoot(targetX, targetY) {
         const angle = Math.atan2(targetY - this.y, targetX - this.x);
         
-        if (this.hasMultiShot) {
-            // Shoot 5 bullets in a spread pattern with multishot
-            const bulletCount = 5;
+        // Use the higher of normal multishot (5) or extraMultishot from codes
+        const bulletCount = Math.max(5 * (this.hasMultiShot ? 1 : 0), this.extraMultishot || 0);
+        
+        if (bulletCount > 0) {
             const spreadAngle = Math.PI / 8; // 22.5 degree spread
-            
             for (let i = 0; i < bulletCount; i++) {
                 const bulletAngle = angle + (i - (bulletCount-1)/2) * spreadAngle;
-                this.bullets.push(new Bullet(this.x, this.y, bulletAngle));
+                const bullet = new Bullet(this.x, this.y, bulletAngle);
+                bullet.maxBounces = this.bulletBounces;  // Apply bounce count
+                this.bullets.push(bullet);
             }
         } else {
             // Single bullet without multishot
-            this.bullets.push(new Bullet(this.x, this.y, angle));
+            const bullet = new Bullet(this.x, this.y, angle);
+            bullet.maxBounces = this.bulletBounces;  // Apply bounce count
+            this.bullets.push(bullet);
         }
     }
 
@@ -312,6 +343,8 @@ class Bullet {
         this.startX = x;  // Store starting position
         this.startY = y;
         this.colors = ['#ffff00', '#ff00ff', '#00ffff', '#ff0000', '#0000ff'];
+        this.bounceCount = 0;  // Track number of bounces
+        this.maxBounces = 0;   // Maximum bounces allowed
     }
 
     draw() {
@@ -342,15 +375,35 @@ class Bullet {
     update() {
         this.x += this.dx;
         this.y += this.dy;
+
+        // Check for bounces if we have bounces remaining
+        if (this.maxBounces > 0) {
+            if (this.x <= 0 || this.x >= canvas.width) {
+                if (this.bounceCount < this.maxBounces) {
+                    this.dx = -this.dx;  // Reverse horizontal direction
+                    this.bounceCount++;
+                }
+            }
+            if (this.y <= 0 || this.y >= canvas.height) {
+                if (this.bounceCount < this.maxBounces) {
+                    this.dy = -this.dy;  // Reverse vertical direction
+                    this.bounceCount++;
+                }
+            }
+        }
     }
 
     isOffscreen() {
-        return (
-            this.x < 0 || 
-            this.x > canvas.width || 
-            this.y < 0 || 
-            this.y > canvas.height
-        );
+        // Only consider it offscreen if we've used all our bounces
+        if (this.bounceCount >= this.maxBounces) {
+            return (
+                this.x < 0 || 
+                this.x > canvas.width || 
+                this.y < 0 || 
+                this.y > canvas.height
+            );
+        }
+        return false;
     }
 }
 
@@ -943,12 +996,26 @@ function drawStartMenu() {
             const x = canvas.width/2 - 450 + ((i-1) % 10) * 90; // 10 columns
             const y = 200 + Math.floor((i-1) / 10) * 60;        // 7 rows now
             
-            ctx.fillStyle = '#444444';
+            // Check if level is unlocked
+            const isUnlocked = unlockedLevels.includes(i);
+            
+            // Draw button background (gray for locked, normal for unlocked)
+            ctx.fillStyle = isUnlocked ? '#444444' : '#222222';
             ctx.fillRect(x - 25, y - 25, 50, 50);
             
-            ctx.fillStyle = 'white';
+            // Draw level number
+            ctx.fillStyle = isUnlocked ? 'white' : '#666666';
             ctx.font = '20px Arial';
             ctx.fillText(i.toString(), x, y + 7);
+            
+            // Draw lock icon for locked levels
+            if (!isUnlocked) {
+                ctx.fillStyle = '#666666';
+                ctx.beginPath();
+                ctx.arc(x, y - 5, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillRect(x - 5, y - 5, 10, 12);
+            }
         }
 
         // Move back button down further to accommodate extra row
@@ -959,13 +1026,13 @@ function drawStartMenu() {
         ctx.fillText('Back', canvas.width/2, 725);
     } else {
         // Normal menu items
-    // Power-up mode toggle
-    ctx.fillStyle = allowMultiplePowerups ? '#00ff00' : '#444444';
-    ctx.fillRect(canvas.width/2 - 150, 150, 300, 40);
-    ctx.fillStyle = 'white';
-    ctx.font = '20px Arial';
-    ctx.fillText(`Multiple Power-ups: ${allowMultiplePowerups ? 'ON' : 'OFF'}`, 
-                canvas.width/2, 175);
+        // Power-up mode toggle
+        ctx.fillStyle = allowMultiplePowerups ? '#00ff00' : '#444444';
+        ctx.fillRect(canvas.width/2 - 150, 150, 300, 40);
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText(`Multiple Power-ups: ${allowMultiplePowerups ? 'ON' : 'OFF'}`, 
+                    canvas.width/2, 175);
 
         // Select Level button
         ctx.fillStyle = '#444444';
@@ -973,42 +1040,57 @@ function drawStartMenu() {
         ctx.fillStyle = 'white';
         ctx.fillText('Select Level', canvas.width/2, 225);
 
-    // Shop section
-    ctx.fillStyle = 'white';
-    ctx.font = '32px Arial';
-    ctx.fillText('SHOP', canvas.width/2, 250);
-    ctx.font = '20px Arial';
-    ctx.fillText(`Coins: ${coins}`, canvas.width/2, 280);
-
-    // Shop items
-    const shopItems = [
-        { name: 'Extra Projectile', cost: 50, key: 'extraProjectiles' },
-        { name: 'Max HP +1', cost: 50, key: 'maxHp' },
-        { name: 'Speed +1', cost: 50, key: 'speed' }
-    ];
-
-    shopItems.forEach((item, index) => {
-        const y = 310 + (index * 50);
-        ctx.fillStyle = coins >= item.cost ? '#444444' : '#222222';
-        ctx.fillRect(canvas.width/2 - 150, y, 300, 40);
+        // Shop section
         ctx.fillStyle = 'white';
-        ctx.fillText(`${item.name} (${permanentUpgrades[item.key]}) - ${item.cost} coins`, 
-                    canvas.width/2, y + 25);
-    });
+        ctx.font = '32px Arial';
+        ctx.fillText('SHOP', canvas.width/2, 250);
+        ctx.font = '20px Arial';
+        ctx.fillText(`Coins: ${coins}`, canvas.width/2, 280);
 
-    // Start button
-    ctx.fillStyle = '#444444';
-    ctx.fillRect(canvas.width/2 - 60, 500, 120, 40);
-    ctx.fillStyle = 'white';
-    ctx.fillText('Start Game', canvas.width/2, 525);
+        // Code redemption section
+        ctx.fillStyle = '#444444';
+        ctx.fillRect(canvas.width/2 - 150, 310, 300, 40);
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText('Enter Code', canvas.width/2, 335);
 
-    // Add bonus coins toggle button (using canvas instead of Phaser)
-    ctx.fillStyle = '#444444';
-    ctx.fillRect(canvas.width/2 - 150, 350, 300, 40);
-    ctx.fillStyle = 'white';
-    ctx.font = '20px Arial';
-    ctx.fillText(`Bonus Coins: ${bonusCoinsEnabled ? 'ON' : 'OFF'}`, 
-                canvas.width/2, 375);
+        // Display active codes
+        ctx.font = '16px Arial';
+        ctx.fillStyle = '#00ff00';
+        activeCodes.forEach((code, index) => {
+            ctx.fillText(`Active: ${code} (${GAME_CODES[code].description})`, 
+                        canvas.width/2, 365 + index * 20);
+        });
+
+        // Shop items (moved down to accommodate code section)
+        const shopItems = [
+            { name: 'Extra Projectile', cost: 50, key: 'extraProjectiles' },
+            { name: 'Max HP +1', cost: 50, key: 'maxHp' },
+            { name: 'Speed +1', cost: 50, key: 'speed' }
+        ];
+
+        shopItems.forEach((item, index) => {
+            const y = 410 + (index * 50);  // Moved down by 100 pixels
+            ctx.fillStyle = coins >= item.cost ? '#444444' : '#222222';
+            ctx.fillRect(canvas.width/2 - 150, y, 300, 40);
+            ctx.fillStyle = 'white';
+            ctx.fillText(`${item.name} (${permanentUpgrades[item.key]}) - ${item.cost} coins`, 
+                        canvas.width/2, y + 25);
+        });
+
+        // Start button (moved down)
+        ctx.fillStyle = '#444444';
+        ctx.fillRect(canvas.width/2 - 60, 600, 120, 40);  // Moved down by 100 pixels
+        ctx.fillStyle = 'white';
+        ctx.fillText('Start Game', canvas.width/2, 625);
+
+        // Add bonus coins toggle button (moved down)
+        ctx.fillStyle = '#444444';
+        ctx.fillRect(canvas.width/2 - 150, 550, 300, 40);  // Moved down by 100 pixels
+        ctx.fillStyle = 'white';
+        ctx.font = '20px Arial';
+        ctx.fillText(`Bonus Coins: ${bonusCoinsEnabled ? 'ON' : 'OFF'}`, 
+                    canvas.width/2, 575);
     }
 }
 
@@ -1154,6 +1236,11 @@ function runGame() {
                                         enemiesKilled = 0;
                                         bossKillCount++;
                                         showVictoryScreen = true;
+                                        // Unlock next level if not already unlocked
+                                        if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+                                            unlockedLevels.push(currentLevel + 1);
+                                            saveGame();
+                                        }
                                     }
                                 });
                             }
@@ -1169,6 +1256,11 @@ function runGame() {
                                     enemiesKilled = 0;
                                     bossKillCount++;
                                     showVictoryScreen = true;
+                                    // Unlock next level if not already unlocked
+                                    if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+                                        unlockedLevels.push(currentLevel + 1);
+                                        saveGame();
+                                    }
                                 }
                             }
                         }
@@ -1248,6 +1340,11 @@ function runGame() {
                                         enemiesKilled = 0;
                                         bossKillCount++;
                                         showVictoryScreen = true;
+                                        // Unlock next level if not already unlocked
+                                        if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+                                            unlockedLevels.push(currentLevel + 1);
+                                            saveGame();
+                                        }
                                     }
                                 });
                             }
@@ -1263,6 +1360,11 @@ function runGame() {
                                     enemiesKilled = 0;
                                     bossKillCount++;
                                     showVictoryScreen = true;
+                                    // Unlock next level if not already unlocked
+                                    if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+                                        unlockedLevels.push(currentLevel + 1);
+                                        saveGame();
+                                    }
                                 }
                             }
                         }
@@ -1401,11 +1503,14 @@ canvas.addEventListener('click', e => {
                 
                 if (e.clientX >= x - 25 && e.clientX <= x + 25 &&
                     e.clientY >= y - 25 && e.clientY <= y + 25) {
-                    currentLevel = i;
-                    gameStarted = true;
-                    showLevelSelect = false;
-                    resetGame();
-                    return;
+                    // Only allow selection if level is unlocked
+                    if (unlockedLevels.includes(i)) {
+                        currentLevel = i;
+                        gameStarted = true;
+                        showLevelSelect = false;
+                        resetGame();
+                        return;
+                    }
                 }
             }
 
@@ -1462,6 +1567,24 @@ canvas.addEventListener('click', e => {
             e.clientX >= canvas.width/2 - 150 && e.clientX <= canvas.width/2 + 150) {
             bonusCoinsEnabled = !bonusCoinsEnabled;
             return;
+            }
+
+            // Code redemption button
+            if (e.clientY >= 310 && e.clientY <= 350 &&
+                e.clientX >= canvas.width/2 - 150 && e.clientX <= canvas.width/2 + 150) {
+                const code = prompt('Enter code:')?.toUpperCase();
+                if (code && GAME_CODES[code] && !activeCodes.includes(code)) {
+                    activeCodes.push(code);
+                    saveGame();  // Save activated codes
+                    // Reset player to apply new code effects
+                    player = new Player();
+                    alert('Code redeemed successfully!');
+                } else if (activeCodes.includes(code)) {
+                    alert('Code already redeemed!');
+                } else {
+                    alert('Invalid code!');
+                }
+                return;
             }
         }
     } else if (isPaused) {
@@ -1585,7 +1708,9 @@ function activateMultiShot() {
 function saveGame() {
     const gameData = {
         coins: coins,
-        upgrades: permanentUpgrades
+        upgrades: permanentUpgrades,
+        unlockedLevels: unlockedLevels,
+        activeCodes: activeCodes  // Save active codes
     };
     localStorage.setItem('gameData', JSON.stringify(gameData));
 }
@@ -1600,6 +1725,8 @@ function loadGame() {
             maxHp: 0,
             speed: 0
         };
+        unlockedLevels = data.unlockedLevels || [1];
+        activeCodes = data.activeCodes || [];  // Load active codes
     }
 }
 
@@ -2492,4 +2619,51 @@ function drawPauseMenu() {
     ctx.fillRect(canvas.width/2 - 100, menuY + 180, 200, 40);
     ctx.fillStyle = 'white';
     ctx.fillText('Main Menu', canvas.width/2, menuY + 205);
+}
+
+function drawVictoryScreen() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = 'white';
+    ctx.font = '48px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('VICTORY!', canvas.width/2, canvas.height/2 - 50);
+    
+    // Show "Next Level Unlocked!" message if applicable
+    if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+        ctx.font = '24px Arial';
+        ctx.fillStyle = '#00ff00';
+        ctx.fillText('Level ' + (currentLevel + 1) + ' Unlocked!', canvas.width/2, canvas.height/2);
+    }
+    
+    ctx.fillStyle = '#444444';
+    ctx.fillRect(canvas.width/2 - 100, canvas.height/2 + 50, 200, 50);
+    ctx.fillStyle = 'white';
+    ctx.font = '24px Arial';
+    ctx.fillText('Continue', canvas.width/2, canvas.height/2 + 82);
+}
+
+function handleVictoryClick(e) {
+    const continueBtn = {
+        x: canvas.width/2 - 100,
+        y: canvas.height/2 + 50,
+        width: 200,
+        height: 50
+    };
+
+    if (e.clientX >= continueBtn.x && e.clientX <= continueBtn.x + continueBtn.width &&
+        e.clientY >= continueBtn.y && e.clientY <= continueBtn.y + continueBtn.height) {
+        
+        // Unlock next level if not already unlocked
+        if (currentLevel < MAX_LEVELS && !unlockedLevels.includes(currentLevel + 1)) {
+            unlockedLevels.push(currentLevel + 1);
+            saveGame();
+        }
+        
+        showVictoryScreen = false;
+        showLevelSelect = true;
+        gameStarted = false;
+        resetGame();
+    }
 }
