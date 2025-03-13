@@ -1,6 +1,10 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Set canvas to fixed size
+canvas.width = 200;
+canvas.height = 200;
+
 // Add a dedicated event listener for the Escape key
 window.addEventListener('keydown', function(event) {
     if (event.key === 'Escape' && gameStarted) {
@@ -49,12 +53,9 @@ const GAME_CODES = {
     'DUCKPOWER': { effect: 'levelDamage', value: 2, description: '+2 damage per level' },
     'WADDLE': { effect: 'levelDamage', value: 4, description: '+4 damage per level' },
     'FEATHERS': { effect: 'levelDamage', value: 6, description: '+6 damage per level' },
-    'DUCK AND LASER': { effect: 'bulletMod', value: { multishot: 3, bounces: 2 }, description: '+3 multishot, bullets bounce 2 times' }
+    'DUCK AND LASER': { effect: 'bulletMod', value: { multishot: 3, bounces: 2 }, description: '+3 multishot, bullets bounce 2 times' },
+    'EXPLOSIVE HYPERDUCK': { effect: 'bulletMod', value: { explosive: true, explosiveDamage: 20 }, description: 'Bullets explode on impact, dealing 20 damage' }
 };
-
-// Set canvas to fullscreen
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
 
 class Player {
     constructor() {
@@ -83,6 +84,8 @@ class Player {
         this.afterimages = [];
         this.extraMultishot = 0;  // Track additional multishot from codes
         this.bulletBounces = 0;   // Track bullet bounces from codes
+        this.explosiveBullets = false;  // Track if bullets should explode
+        this.explosiveDamage = 0;  // Track explosive damage amount
         
         // Calculate additional effects from active codes
         let codeDamageBonus = 0;
@@ -93,6 +96,10 @@ class Player {
                 const mods = GAME_CODES[code].value;
                 this.extraMultishot = Math.max(this.extraMultishot, mods.multishot || 0);
                 this.bulletBounces = Math.max(this.bulletBounces, mods.bounces || 0);
+                if (mods.explosive) {
+                    this.explosiveBullets = true;
+                    this.explosiveDamage = mods.explosiveDamage;
+                }
             }
         });
         this.damage = this.baseDamage + codeDamageBonus;
@@ -313,12 +320,16 @@ class Player {
                 const bulletAngle = angle + (i - (bulletCount-1)/2) * spreadAngle;
                 const bullet = new Bullet(this.x, this.y, bulletAngle);
                 bullet.maxBounces = this.bulletBounces;  // Apply bounce count
+                bullet.isExplosive = this.explosiveBullets;  // Set explosive property
+                bullet.explosiveDamage = this.explosiveDamage;  // Set explosive damage
                 this.bullets.push(bullet);
             }
         } else {
             // Single bullet without multishot
             const bullet = new Bullet(this.x, this.y, angle);
             bullet.maxBounces = this.bulletBounces;  // Apply bounce count
+            bullet.isExplosive = this.explosiveBullets;  // Set explosive property
+            bullet.explosiveDamage = this.explosiveDamage;  // Set explosive damage
             this.bullets.push(bullet);
         }
     }
@@ -345,6 +356,8 @@ class Bullet {
         this.colors = ['#ffff00', '#ff00ff', '#00ffff', '#ff0000', '#0000ff'];
         this.bounceCount = 0;  // Track number of bounces
         this.maxBounces = 0;   // Maximum bounces allowed
+        this.isExplosive = false;  // Track if bullet should explode
+        this.explosiveDamage = 0;  // Track explosive damage amount
     }
 
     draw() {
@@ -502,19 +515,64 @@ class ExplodingEnemy extends Enemy {
         this.radius = 20;
         this.isExploding = false;
         this.explosionRadius = 0;
-        this.maxExplosionRadius = 30;  // Reduced from 50 to 30 pixels
+        this.maxExplosionRadius = 60;  // Doubled from 30 to 60
         this.explosionDuration = 180;
         this.explosionTimer = 0;
-        this.explosionDamage = 2;  // Damage for both player and enemies
+        this.explosionDamage = 2;
+        this.explosionFrame = 0;
     }
 
     draw() {
         if (this.isExploding) {
-            // Draw explosion
+            ctx.save();
+            // Calculate explosion progress
+            const progress = 1 - this.explosionTimer/this.explosionDuration;
+            const alpha = 0.8 * (1 - progress);  // Increased from 0.7 to 0.8 for better visibility
+            
+            // Create supernova gradient effect
+            const gradient = ctx.createRadialGradient(
+                this.x, this.y, 0,
+                this.x, this.y, this.explosionRadius
+            );
+            gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+            gradient.addColorStop(0.2, `rgba(255, 150, 0, ${alpha * 0.9})`);  // Adjusted stops for larger size
+            gradient.addColorStop(0.5, `rgba(255, 50, 0, ${alpha * 0.7})`);
+            gradient.addColorStop(1, `rgba(255, 0, 0, ${alpha * 0.4})`);
+            
+            // Draw main explosion
             ctx.beginPath();
-            ctx.fillStyle = `rgba(255, 165, 0, ${0.5 * (1 - this.explosionTimer/this.explosionDuration)})`;
+            ctx.fillStyle = gradient;
             ctx.arc(this.x, this.y, this.explosionRadius, 0, Math.PI * 2);
             ctx.fill();
+            
+            // Add shockwave effect
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.6})`;
+            ctx.lineWidth = 3;
+            ctx.arc(this.x, this.y, this.explosionRadius * 0.85, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Add energy rays
+            for (let i = 0; i < 12; i++) {  // Increased from 8 to 12 rays
+                const angle = (i / 12) * Math.PI * 2 + this.explosionFrame * 0.1;
+                const innerRadius = this.explosionRadius * 0.3;
+                const outerRadius = this.explosionRadius;
+                
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(255, 200, 0, ${alpha * 0.4})`;
+                ctx.lineWidth = 3;
+                ctx.moveTo(
+                    this.x + Math.cos(angle) * innerRadius,
+                    this.y + Math.sin(angle) * innerRadius
+                );
+                ctx.lineTo(
+                    this.x + Math.cos(angle) * outerRadius,
+                    this.y + Math.sin(angle) * outerRadius
+                );
+                ctx.stroke();
+            }
+            
+            ctx.restore();
         } else {
             // Draw triangle
             ctx.beginPath();
@@ -546,6 +604,20 @@ class ExplodingEnemy extends Enemy {
             this.explosionRadius = this.maxExplosionRadius * 
                 (1 - this.explosionTimer/this.explosionDuration);
             this.explosionTimer--;
+            this.explosionFrame++;
+            
+            // Check for player damage
+            const dx = playerX - this.x;
+            const dy = playerY - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < this.explosionRadius && !player.hasShield) {
+                player.hp -= this.explosionDamage;
+                if (player.hp <= 0) {
+                    player.alive = false;
+                }
+            }
+            
             return this.explosionTimer <= 0;
         } else {
             super.update(playerX, playerY);
@@ -1175,43 +1247,58 @@ function runGame() {
                     if (distance < bullet.radius + enemy.radius) {
                         player.bullets.splice(bulletIndex, 1);
                             
-                            if (enemy instanceof SplittingEnemy) {
-                                const newEnemies = enemy.split();
-                                enemies.splice(enemyIndex, 1);
-                                if (newEnemies.length > 0) {
-                                    newEnemies.forEach(newEnemy => {
-                                        enemies.push(newEnemy);
-                                    });
-                                    if (enemy.size === 'small') {
-                        enemiesKilled++;
-                                        totalKills++;
-                                        player.score += 10;
-                                    }
+                        if (bullet.isExplosive) {
+                            // Create explosion effect
+                            const explosion = new ExplodingEnemy();
+                            explosion.x = bullet.x;
+                            explosion.y = bullet.y;
+                            explosion.isExploding = true;
+                            explosion.explosionTimer = explosion.explosionDuration;
+                            explosion.explosionDamage = bullet.explosiveDamage;
+                            enemies.push(explosion);
+                            
+                            // Remove the hit enemy
+                            enemies.splice(enemyIndex, 1);
+                            enemiesKilled++;
+                            totalKills++;
+                            player.score += 10;
+                        } else if (enemy instanceof SplittingEnemy) {
+                            const newEnemies = enemy.split();
+                            enemies.splice(enemyIndex, 1);
+                            if (newEnemies.length > 0) {
+                                newEnemies.forEach(newEnemy => {
+                                    enemies.push(newEnemy);
+                                });
+                                if (enemy.size === 'small') {
+                                    enemiesKilled++;
+                                    totalKills++;
+                                    player.score += 10;
                                 }
-                            } else if (enemy instanceof ExplodingEnemy) {
-                                const ex = enemy.x;
-                                const ey = enemy.y;
-                                enemies.splice(enemyIndex, 1);
-                                
-                                const explosion = new ExplodingEnemy();
-                                explosion.x = ex;
-                                explosion.y = ey;
-                                explosion.isExploding = true;
-                                explosion.explosionTimer = explosion.explosionDuration;
-                                enemies.push(explosion);
-                                
-                                enemiesKilled++;
-                                totalKills++;
-                                player.score += 10;
-                        } else {
-                                enemies.splice(enemyIndex, 1);
-                                enemiesKilled++;
-                                totalKills++;
-                                player.score += 10;
                             }
+                        } else if (enemy instanceof ExplodingEnemy) {
+                            const ex = enemy.x;
+                            const ey = enemy.y;
+                            enemies.splice(enemyIndex, 1);
+                            
+                            const explosion = new ExplodingEnemy();
+                            explosion.x = ex;
+                            explosion.y = ey;
+                            explosion.isExploding = true;
+                            explosion.explosionTimer = explosion.explosionDuration;
+                            enemies.push(explosion);
+                            
+                            enemiesKilled++;
+                            totalKills++;
+                            player.score += 10;
+                        } else {
+                            enemies.splice(enemyIndex, 1);
+                            enemiesKilled++;
+                            totalKills++;
+                            player.score += 10;
                         }
-                    });
-                }
+                    }
+                });
+            }
 
                 // Check collisions with bosses
                 bosses.forEach((boss, bossIndex) => {
