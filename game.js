@@ -1193,10 +1193,10 @@ function drawStartMenu() {
             
             // Draw remove button
             ctx.fillStyle = '#ff4444';
-            ctx.fillRect(canvas.width/2 + 120, y - 15, 60, 20);
+            ctx.fillRect(canvas.width/2 + 100, y - 15, 60, 20);
             ctx.fillStyle = 'white';
             ctx.textAlign = 'center';
-            ctx.fillText('Remove', canvas.width/2 + 150, y);
+            ctx.fillText('Remove', canvas.width/2 + 130, y + 3);
         });
         ctx.textAlign = 'center';  // Reset text alignment
 
@@ -1311,8 +1311,6 @@ function runGame() {
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
                     if (distance < bullet.radius + enemy.radius) {
-                        player.bullets.splice(bulletIndex, 1);
-                            
                         if (bullet.isSupernova) {
                             // Create supernova effect
                             bullet.supernovaActive = true;
@@ -1325,20 +1323,23 @@ function runGame() {
                             player.score += 10;
                             
                             // Damage nearby enemies
-                            enemies.forEach((nearbyEnemy, idx) => {
-                                if (idx !== enemyIndex) {
+                            for (let i = enemies.length - 1; i >= 0; i--) {
+                                if (i !== enemyIndex) {
+                                    const nearbyEnemy = enemies[i];
                                     const dx = nearbyEnemy.x - bullet.x;
                                     const dy = nearbyEnemy.y - bullet.y;
                                     const dist = Math.sqrt(dx * dx + dy * dy);
                                     
                                     if (dist <= bullet.maxSupernovaRadius) {
-                                        enemies.splice(idx, 1);
+                                        enemies.splice(i, 1);
                                         enemiesKilled++;
                                         totalKills++;
                                         player.score += 10;
                                     }
                                 }
-                            });
+                            }
+                            // Keep the bullet for the supernova effect duration
+                            return;
                         } else if (bullet.isExplosive) {
                             // Create explosion effect
                             const explosion = new ExplodingEnemy();
@@ -1348,8 +1349,11 @@ function runGame() {
                             explosion.explosionTimer = explosion.explosionDuration;
                             explosion.explosiveDamage = bullet.explosiveDamage;
                             enemies.push(explosion);
-                            
-                            // Remove the hit enemy
+                        }
+                        
+                        // Remove the bullet and enemy for non-supernova hits
+                        if (!bullet.isSupernova) {
+                            player.bullets.splice(bulletIndex, 1);
                             enemies.splice(enemyIndex, 1);
                             enemiesKilled++;
                             totalKills++;
@@ -1718,10 +1722,14 @@ canvas.addEventListener('click', e => {
             // Check for code removal clicks
             activeCodes.forEach((code, index) => {
                 const y = 365 + index * 30;
-                if (e.clientX >= canvas.width/2 + 120 && e.clientX <= canvas.width/2 + 180 &&
-                    e.clientY >= y - 15 && e.clientY <= y + 5) {
+                const buttonX = canvas.width/2 + 100;
+                const buttonY = y - 15;
+                
+                if (e.clientX >= buttonX && e.clientX <= buttonX + 60 &&
+                    e.clientY >= buttonY && e.clientY <= buttonY + 20) {
+                    // Remove the code
                     activeCodes.splice(index, 1);
-                    saveGame();  // Save after removing code
+                    saveGame();
                     // Reset player to remove code effects
                     player = new Player();
                     return;
