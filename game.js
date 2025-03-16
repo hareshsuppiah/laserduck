@@ -54,7 +54,8 @@ const GAME_CODES = {
     'WADDLE': { effect: 'levelDamage', value: 4, description: '+4 damage per level' },
     'FEATHERS': { effect: 'levelDamage', value: 6, description: '+6 damage per level' },
     'DUCK AND LASER': { effect: 'bulletMod', value: { multishot: 3, bounces: 2 }, description: '+3 multishot, bullets bounce 2 times' },
-    'EXPLOSIVE HYPERDUCK': { effect: 'bulletMod', value: { explosive: true, explosiveDamage: 20 }, description: 'Bullets explode on impact, dealing 20 damage' }
+    'EXPLOSIVE HYPERDUCK': { effect: 'bulletMod', value: { explosive: true, explosiveDamage: 20 }, description: 'Bullets explode on impact, dealing 20 damage' },
+    'MATHAMATICAL HYPERNOVA DUCK': { effect: 'bulletMod', value: { isSupernova: true, supernovaDamage: 30 }, description: 'Bullets create supernovas on impact, dealing 30 damage' }
 };
 
 class Player {
@@ -86,6 +87,8 @@ class Player {
         this.bulletBounces = 0;   // Track bullet bounces from codes
         this.explosiveBullets = false;  // Track if bullets should explode
         this.explosiveDamage = 0;  // Track explosive damage amount
+        this.supernovaBullets = false;  // Track if bullets should create supernovas
+        this.supernovaDamage = 0;  // Track supernova damage amount
         
         // Calculate additional effects from active codes
         let codeDamageBonus = 0;
@@ -99,6 +102,10 @@ class Player {
                 if (mods.explosive) {
                     this.explosiveBullets = true;
                     this.explosiveDamage = mods.explosiveDamage;
+                }
+                if (mods.isSupernova) {
+                    this.supernovaBullets = true;
+                    this.supernovaDamage = mods.supernovaDamage;
                 }
             }
         });
@@ -322,6 +329,8 @@ class Player {
                 bullet.maxBounces = this.bulletBounces;  // Apply bounce count
                 bullet.isExplosive = this.explosiveBullets;  // Set explosive property
                 bullet.explosiveDamage = this.explosiveDamage;  // Set explosive damage
+                bullet.isSupernova = this.supernovaBullets;  // Set supernova property
+                bullet.supernovaDamage = this.supernovaDamage;  // Set supernova damage
                 this.bullets.push(bullet);
             }
         } else {
@@ -330,6 +339,8 @@ class Player {
             bullet.maxBounces = this.bulletBounces;  // Apply bounce count
             bullet.isExplosive = this.explosiveBullets;  // Set explosive property
             bullet.explosiveDamage = this.explosiveDamage;  // Set explosive damage
+            bullet.isSupernova = this.supernovaBullets;  // Set supernova property
+            bullet.supernovaDamage = this.supernovaDamage;  // Set supernova damage
             this.bullets.push(bullet);
         }
     }
@@ -358,56 +369,91 @@ class Bullet {
         this.maxBounces = 0;   // Maximum bounces allowed
         this.isExplosive = false;  // Track if bullet should explode
         this.explosiveDamage = 0;  // Track explosive damage amount
+        this.isSupernova = false;  // Track if bullet should create supernova
+        this.supernovaDamage = 0;  // Track supernova damage amount
+        this.supernovaRadius = 0;  // Current radius of supernova
+        this.supernovaActive = false;  // Whether supernova is currently active
+        this.supernovaDuration = 60;  // Duration of supernova effect
+        this.supernovaTimer = 0;  // Timer for supernova effect
+        this.maxSupernovaRadius = 300;  // Maximum radius of supernova
     }
 
     draw() {
-        // Calculate distance from start position
-        const dx = this.x - this.startX;
-        const dy = this.y - this.startY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // Get color based on distance
-        const colorIndex = Math.min(
-            Math.floor(distance / 200), // Change color every 200 pixels
-            this.colors.length - 1
-        );
-        
-        ctx.beginPath();
-        ctx.fillStyle = this.colors[colorIndex];
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Optional: Add glow effect
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = this.colors[colorIndex];
-        
-        // Reset shadow for other drawings
-        ctx.shadowBlur = 0;
+        if (this.supernovaActive) {
+            // Draw supernova effect
+            const progress = 1 - this.supernovaTimer/this.supernovaDuration;
+            const alpha = 0.8 * (1 - progress);
+            
+            const gradient = ctx.createRadialGradient(
+                this.x, this.y, 0,
+                this.x, this.y, this.supernovaRadius
+            );
+            gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+            gradient.addColorStop(0.2, `rgba(255, 150, 0, ${alpha * 0.9})`);
+            gradient.addColorStop(0.5, `rgba(255, 50, 0, ${alpha * 0.7})`);
+            gradient.addColorStop(1, `rgba(255, 0, 0, ${alpha * 0.4})`);
+            
+            ctx.beginPath();
+            ctx.fillStyle = gradient;
+            ctx.arc(this.x, this.y, this.supernovaRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Add shockwave effect
+            ctx.beginPath();
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.6})`;
+            ctx.lineWidth = 3;
+            ctx.arc(this.x, this.y, this.supernovaRadius * 0.85, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            // Regular bullet drawing code
+            const dx = this.x - this.startX;
+            const dy = this.y - this.startY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const colorIndex = Math.min(Math.floor(distance / 200), this.colors.length - 1);
+            
+            ctx.beginPath();
+            ctx.fillStyle = this.colors[colorIndex];
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.colors[colorIndex];
+            ctx.shadowBlur = 0;
+        }
     }
 
     update() {
-        this.x += this.dx;
-        this.y += this.dy;
-
-        // Check for bounces if we have bounces remaining
-        if (this.maxBounces > 0) {
-            if (this.x <= 0 || this.x >= canvas.width) {
-                if (this.bounceCount < this.maxBounces) {
-                    this.dx = -this.dx;  // Reverse horizontal direction
-                    this.bounceCount++;
-                }
+        if (this.supernovaActive) {
+            this.supernovaRadius = this.maxSupernovaRadius * (1 - this.supernovaTimer/this.supernovaDuration);
+            this.supernovaTimer--;
+            if (this.supernovaTimer <= 0) {
+                this.supernovaActive = false;
             }
-            if (this.y <= 0 || this.y >= canvas.height) {
-                if (this.bounceCount < this.maxBounces) {
-                    this.dy = -this.dy;  // Reverse vertical direction
-                    this.bounceCount++;
+        } else {
+            this.x += this.dx;
+            this.y += this.dy;
+
+            if (this.maxBounces > 0) {
+                if (this.x <= 0 || this.x >= canvas.width) {
+                    if (this.bounceCount < this.maxBounces) {
+                        this.dx = -this.dx;
+                        this.bounceCount++;
+                    }
+                }
+                if (this.y <= 0 || this.y >= canvas.height) {
+                    if (this.bounceCount < this.maxBounces) {
+                        this.dy = -this.dy;
+                        this.bounceCount++;
+                    }
                 }
             }
         }
     }
 
     isOffscreen() {
-        // Only consider it offscreen if we've used all our bounces
+        if (this.supernovaActive) {
+            return false;  // Keep supernova effect visible even if original bullet would be offscreen
+        }
         if (this.bounceCount >= this.maxBounces) {
             return (
                 this.x < 0 || 
@@ -515,7 +561,8 @@ class ExplodingEnemy extends Enemy {
         this.radius = 20;
         this.isExploding = false;
         this.explosionRadius = 0;
-        this.maxExplosionRadius = 60;  // Doubled from 30 to 60
+        this.maxExplosionRadius = 300
+        ;  // Doubled from 30 to 60
         this.explosionDuration = 180;
         this.explosionTimer = 0;
         this.explosionDamage = 2;
@@ -684,8 +731,16 @@ class Boss {
     constructor() {
         this.radius = 45;
         this.speed = 1.5;
-        // Set HP based on level
-        this.maxHp = currentLevel <= 12 ? 5000 : 11000;
+        // Set HP based on level and boss count
+        if (currentLevel <= 18) {  // First 3 bosses (levels 6, 12, 18)
+            this.maxHp = 1250;
+        } else if (currentLevel <= 30) {  // Next 2 bosses (levels 24, 30)
+            this.maxHp = 2500;
+        } else if (currentLevel <= 36) {  // Next boss (level 36)
+            this.maxHp = 5000;
+        } else if (currentLevel <= 60) {  // Rest of regular bosses
+            this.maxHp = 11000;
+        }
         this.hp = this.maxHp;
         this.x = canvas.width / 2;
         this.y = 0;
@@ -1126,13 +1181,24 @@ function drawStartMenu() {
         ctx.font = '20px Arial';
         ctx.fillText('Enter Code', canvas.width/2, 335);
 
-        // Display active codes
+        // Display active codes with remove buttons
         ctx.font = '16px Arial';
-        ctx.fillStyle = '#00ff00';
         activeCodes.forEach((code, index) => {
-            ctx.fillText(`Active: ${code} (${GAME_CODES[code].description})`, 
-                        canvas.width/2, 365 + index * 20);
+            const y = 365 + index * 30;  // Increased spacing between codes
+            
+            // Draw code text
+            ctx.fillStyle = '#00ff00';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${code} (${GAME_CODES[code].description})`, canvas.width/2 - 140, y);
+            
+            // Draw remove button
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(canvas.width/2 + 120, y - 15, 60, 20);
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.fillText('Remove', canvas.width/2 + 150, y);
         });
+        ctx.textAlign = 'center';  // Reset text alignment
 
         // Shop items (moved down to accommodate code section)
         const shopItems = [
@@ -1247,50 +1313,43 @@ function runGame() {
                     if (distance < bullet.radius + enemy.radius) {
                         player.bullets.splice(bulletIndex, 1);
                             
-                        if (bullet.isExplosive) {
-                            // Create explosion effect
-                            const explosion = new ExplodingEnemy();
-                            explosion.x = bullet.x;
-                            explosion.y = bullet.y;
-                            explosion.isExploding = true;
-                            explosion.explosionTimer = explosion.explosionDuration;
-                            explosion.explosionDamage = bullet.explosiveDamage;
-                            enemies.push(explosion);
+                        if (bullet.isSupernova) {
+                            // Create supernova effect
+                            bullet.supernovaActive = true;
+                            bullet.supernovaTimer = bullet.supernovaDuration;
                             
                             // Remove the hit enemy
                             enemies.splice(enemyIndex, 1);
                             enemiesKilled++;
                             totalKills++;
                             player.score += 10;
-                        } else if (enemy instanceof SplittingEnemy) {
-                            const newEnemies = enemy.split();
-                            enemies.splice(enemyIndex, 1);
-                            if (newEnemies.length > 0) {
-                                newEnemies.forEach(newEnemy => {
-                                    enemies.push(newEnemy);
-                                });
-                                if (enemy.size === 'small') {
-                                    enemiesKilled++;
-                                    totalKills++;
-                                    player.score += 10;
-                                }
-                            }
-                        } else if (enemy instanceof ExplodingEnemy) {
-                            const ex = enemy.x;
-                            const ey = enemy.y;
-                            enemies.splice(enemyIndex, 1);
                             
+                            // Damage nearby enemies
+                            enemies.forEach((nearbyEnemy, idx) => {
+                                if (idx !== enemyIndex) {
+                                    const dx = nearbyEnemy.x - bullet.x;
+                                    const dy = nearbyEnemy.y - bullet.y;
+                                    const dist = Math.sqrt(dx * dx + dy * dy);
+                                    
+                                    if (dist <= bullet.maxSupernovaRadius) {
+                                        enemies.splice(idx, 1);
+                                        enemiesKilled++;
+                                        totalKills++;
+                                        player.score += 10;
+                                    }
+                                }
+                            });
+                        } else if (bullet.isExplosive) {
+                            // Create explosion effect
                             const explosion = new ExplodingEnemy();
-                            explosion.x = ex;
-                            explosion.y = ey;
+                            explosion.x = bullet.x;
+                            explosion.y = bullet.y;
                             explosion.isExploding = true;
                             explosion.explosionTimer = explosion.explosionDuration;
+                            explosion.explosiveDamage = bullet.explosiveDamage;
                             enemies.push(explosion);
                             
-                            enemiesKilled++;
-                            totalKills++;
-                            player.score += 10;
-                        } else {
+                            // Remove the hit enemy
                             enemies.splice(enemyIndex, 1);
                             enemiesKilled++;
                             totalKills++;
@@ -1655,6 +1714,19 @@ canvas.addEventListener('click', e => {
             bonusCoinsEnabled = !bonusCoinsEnabled;
             return;
             }
+
+            // Check for code removal clicks
+            activeCodes.forEach((code, index) => {
+                const y = 365 + index * 30;
+                if (e.clientX >= canvas.width/2 + 120 && e.clientX <= canvas.width/2 + 180 &&
+                    e.clientY >= y - 15 && e.clientY <= y + 5) {
+                    activeCodes.splice(index, 1);
+                    saveGame();  // Save after removing code
+                    // Reset player to remove code effects
+                    player = new Player();
+                    return;
+                }
+            });
 
             // Code redemption button
             if (e.clientY >= 310 && e.clientY <= 350 &&
